@@ -2,7 +2,7 @@
 
 # 定義 Nginx 設定檔目錄 (預設為 /etc/nginx，請依系統實際情況修改)
 NGINX_CONF_DIR="/etc/nginx/conf.d"
-NGINX_STREAM_DIR="/etc/nginx/stream.d"
+NGINX_STREAM_DIR="/etc/nginx/stream.conf.d"
 REPO_DIR="$HOME/bothwell-nginx"
 
 cd "$REPO_DIR" || exit 1
