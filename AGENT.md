@@ -33,6 +33,21 @@
    - 執行 `nginx -s reload`
 3. 任何結構變動或是網路架構改變，請同步更新本 `AGENT.md` 以及 `README.md`。
 
+## Git Commit 規範
+未來的 Commit 訊息必須統一遵守以下格式：
+`[動作(項目):繁中說明]`
+
+**動作類型範例：**
+- `feat`: 新增功能或新的反代規則
+- `fix`: 修正錯誤或設定檔語法
+- `update`: 更新既有配置或優化
+- `docs`: 修改說明文件
+
+**範例：**
+- `[update(nginx):新增API反代]`
+- `[feat(stream):加入新的資料庫轉發]`
+- `[fix(ssl):修正憑證路徑錯誤]`
+
 ## HTTPS / SSL 備註
 - 此環境預計需要配置 SSL 憑證。建議使用 Let's Encrypt (`certbot --nginx`) 來進行配置。
 - 當使用者要求「配置 SSL」時，請提醒使用者透過系統終端執行 certbot，並在完成後，將 `/etc/nginx/conf.d/amee-bw.duckdns.org.conf` 被 certbot 修改過的新內容覆蓋回此專案的 `conf.d/amee-bw.duckdns.org.conf` 內，最後做一次 Git Commit。
