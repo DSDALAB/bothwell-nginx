@@ -8,8 +8,10 @@
   - `bw-internal.duckdns.org.conf`: 內網域名設定 (HTTP + HTTPS)
   - `direct-ip.conf`: 純 IP 直連設定 (HTTP only)
 - `stream.d/`: 存放 TCP / UDP 轉發設定 (會同步到 `/etc/nginx/stream.conf.d/`)
+- `dnsmasq/bothwell.conf`: dnsmasq 本地 DNS 設定備份 (系統實際設定在 `/etc/dnsmasq.d/bothwell.conf`)
 - `sync.sh`: 設定檔同步腳本，提供自動 Git Commit、複製到系統目錄、驗證並重新載入 Nginx 配置。
 - `duckdns-update.sh`: DuckDNS 動態 IP 自動更新腳本，由 crontab 每 5 分鐘自動執行。
+- `duckdns-sync.sh`: 從 DuckDNS 權威 DNS 同步真實 IP 到 dnsmasq 本地覆蓋設定。
 - `AGENT.md`: 提供給 AI Agent 參考的專案維護指南與上下文。
 
 ## 服務與網路配置
@@ -119,6 +121,52 @@ cd ~/bothwell-nginx
 git add .
 git commit -m "[docs(nginx):同步Certbot更新後的設定]"
 git push origin main
+```
+
+## 本地 DNS 伺服器 (dnsmasq)
+
+為防止外網中斷時內部程式無法解析 DuckDNS 域名，這台 LXC 上同時跑了 dnsmasq 作為內網 DNS 伺服器。
+
+### 運作邏輯
+
+```
+外網正常時：
+  內網設備 → 查詢 dnsmasq (10.1.0.102) → 直接回傳本地 IP (192.168.246.251)
+  其他域名 → 轉發給 8.8.8.8 / 1.1.1.1 正常解析
+
+外網中斷時：
+  兩個 DuckDNS 域名 → dnsmasq 仍回傳本地 IP → 服務不受影響
+  其他域名 → 解析失敗（正常，外網本來就斷了）
+```
+
+### dnsmasq 設定
+- 設定檔：`/etc/dnsmasq.d/bothwell.conf`（備份於 `dnsmasq/bothwell.conf`）
+- 監聽介面：`eth1` (10.1.0.102) 與 `lo`
+- 上游 DNS：`8.8.8.8` / `1.1.1.1`
+
+### 定期從 DuckDNS 同步真實 IP (`duckdns-sync.sh`)
+- 腳本：`~/bothwell-nginx/duckdns-sync.sh`
+- 每 5 分鐘向 `8.8.8.8` 查詢 DuckDNS 的真實 IP
+- 若 IP 有變更，自動更新 dnsmasq 設定並 reload
+- 若外網不通（查詢回傳空值），**自動跳過，保留既有設定**（這是關鍵的離線保護機制）
+- Log：`/var/log/duckdns-sync.log`
+
+### 路由器設定（讓整個 LAN 都使用這台 DNS）
+進入路由器管理介面，找到 **DHCP 設定** → **DNS 伺服器**，改成：
+```
+DNS1: 10.1.0.102
+DNS2: 8.8.8.8  (備援)
+```
+設定後，LAN 上的所有設備都會自動走這台 dnsmasq 解析域名。
+
+### 手動測試
+```bash
+# 測試 dnsmasq 是否正確回應
+dig +short amee-bw.duckdns.org @10.1.0.102
+dig +short bw-internal.duckdns.org @10.1.0.102
+
+# 查看同步 Log
+cat /var/log/duckdns-sync.log
 ```
 
 ## Git Commit 規範
