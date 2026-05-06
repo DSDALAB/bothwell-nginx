@@ -7,6 +7,7 @@
   - `amee-bw.duckdns.org.conf`: 公網域名設定 (HTTP + HTTPS)
   - `bw-internal.duckdns.org.conf`: 內網域名設定 (HTTP + HTTPS)
   - `direct-ip.conf`: 純 IP 直連設定 (HTTP only)
+  - `proxy-defaults.conf`: 全域代理預設參數（http 層級，對齊後端 Apache/PHP 設定）
 - `stream.d/`: 存放 TCP / UDP 轉發設定 (會同步到 `/etc/nginx/stream.conf.d/`)
 - `dnsmasq/bothwell.conf`: dnsmasq 本地 DNS 設定備份 (系統實際設定在 `/etc/dnsmasq.d/bothwell.conf`)
 - `sync.sh`: 設定檔同步腳本，提供自動 Git Commit、複製到系統目錄、驗證並重新載入 Nginx 配置。
@@ -56,6 +57,20 @@
 - 外部 Port `1433` → `10.1.0.200:1433` (現役 Windows)
 - 遷移後需改為 `10.1.0.104:1433`
 > 需確認 `/etc/nginx/nginx.conf` 最外層有 `stream { include /etc/nginx/stream.conf.d/*.conf; }`
+
+### 全域代理參數 (`proxy-defaults.conf`)
+對齊後端 Apache / PHP 設定，作用於 `http` 層級，所有 server block 均自動繼承：
+
+| Nginx 參數 | 設定值 | 對應後端設定 |
+|---|---|---|
+| `client_max_body_size` | `128M` | PHP `upload_max_filesize` / `post_max_size` = 128M |
+| `proxy_read_timeout` | `120s` | PHP `max_execution_time` = 120s |
+| `proxy_send_timeout` | `120s` | PHP `max_execution_time` = 120s |
+| `proxy_buffer_size` | `16k` | PHP `memory_limit` = 512M（減少暫存檔寫入）|
+| `proxy_buffers` | `8 32k` | 同上 |
+| `proxy_busy_buffers_size` | `64k` | 同上 |
+
+> **注意：** 若個別 `server` 或 `location` 區塊有明確設定同名指令，則以該層設定覆蓋全域值。
 
 ## 使用方式
 
