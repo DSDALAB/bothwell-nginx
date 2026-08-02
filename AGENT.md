@@ -55,9 +55,27 @@
 - `[fix(ssl):修正憑證路徑錯誤]`
 
 ## HTTPS / SSL 備註
-- `amee-bw.duckdns.org`：使用 HTTP-01 驗證申請，需要對外 80 port 可達。
-- `bw-internal.duckdns.org`：使用 DNS-01 驗證申請（certbot-dns-duckdns 插件），憑據在 `/etc/letsencrypt/duckdns/credentials.ini`（不在 Git 追蹤中）。
+- `amee-bw.duckdns.org`：使用 HTTP-01 驗證申請，需要對外 80 port 可達。Renewal 設定用 `authenticator = nginx` + `installer = nginx`，續簽後會**自動 reload Nginx**。
+- `bw-internal.duckdns.org`：使用 DNS-01 驗證申請（certbot-dns-duckdns 插件），憑據在 `/etc/letsencrypt/duckdns/credentials.ini`（不在 Git 追蹤中）。Renewal 設定只有 `authenticator = dns-duckdns`，**沒有 installer**，續簽**不會自動 reload Nginx**。
 - Certbot 自動修改系統設定後，**請將修改後的 `.conf` 複製回本專案 `conf.d/` 並 Git Commit 備份**。
+
+### ⚠️ 重要陷阱：DNS-01 驗證不會自動 reload Nginx
+2026-08-02 發生過的事故：`bw-internal.duckdns.org` 的憑證已經續簽成功（磁碟上有效期到 10 月），但 Nginx 從未被 reload，一直提供記憶體裡的舊憑證，直到那份舊憑證自然過期使用者才發現 502/憑證過期的問題。
+
+**原因**：任何用 DNS-01（例如 `dns-duckdns` 插件）驗證的網域，Certbot 只負責簽發/更新憑證檔案本身，沒有 `installer` 的話完全不會去碰 Nginx 進程。這跟走 `authenticator = nginx` 的網域（如 `amee-bw`）行為不同，後者續簽後會自動 reload。
+
+**已套用的修復**：在 `/etc/letsencrypt/renewal/bw-internal.duckdns.org.conf` 的 `[renewalparams]` 加上：
+```
+renew_hook = systemctl reload nginx
+```
+
+**未來規則（務必遵守）**：
+1. 任何新增走 DNS-01 驗證的網域，簽發憑證後**必須**檢查其 `/etc/letsencrypt/renewal/<domain>.conf`，確保 `[renewalparams]` 內有 `renew_hook = systemctl reload nginx`（或等效的 deploy-hook）。
+2. 若被要求排查「憑證過期」類問題，**不要只看 `certbot certificates`**（那只顯示磁碟檔案狀態）。務必額外用以下指令確認 Nginx 實際服務中的憑證：
+   ```bash
+   echo | openssl s_client -connect 127.0.0.1:443 -servername <domain> -no_ticket 2>/dev/null | openssl x509 -noout -dates
+   ```
+   兩者日期不一致就代表 Nginx 沒 reload，執行 `sudo nginx -t && sudo systemctl reload nginx` 即可修復當下問題，但別忘了同時檢查/補上 renew_hook 避免重演。
 
 ## DuckDNS 自動更新 IP
 - 腳本：`~/bothwell-nginx/duckdns-update.sh`

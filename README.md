@@ -116,12 +116,31 @@ cat /var/log/duckdns-update.log
 
 ### amee-bw.duckdns.org
 - 驗證方式：HTTP-01（需對外 80 Port 可達）
-- 自動續簽：由 Certbot systemd timer 管理
+- Renewal 設定使用 `authenticator = nginx` + `installer = nginx`，Certbot 續簽成功後**會自動 reload Nginx**
 
 ### bw-internal.duckdns.org
 - 驗證方式：DNS-01（DuckDNS API，不需要對外可達）
 - 憑證憑據：`/etc/letsencrypt/duckdns/credentials.ini`（不在 Git 追蹤中）
-- 自動續簽：由 Certbot systemd timer 管理
+- Renewal 設定使用 `authenticator = dns-duckdns`，**沒有 installer**，Certbot 只會更新憑證檔案，**不會自動 reload Nginx**
+- 因此 `/etc/letsencrypt/renewal/bw-internal.duckdns.org.conf` 的 `[renewalparams]` 內手動加了一行：
+  ```
+  renew_hook = systemctl reload nginx
+  ```
+  確保續簽成功後 Nginx 會被通知重載，避免憑證檔案已更新但 Nginx 仍持續提供記憶體中的舊憑證，直到過期才被發現。
+
+> **⚠️ 事故紀錄 (2026-08-02)：** `bw-internal.duckdns.org` 曾發生憑證明明已續簽（磁碟上有效）、但 Nginx 從未 reload 過，導致對外實際提供的憑證早已過期的問題。根因就是 DNS-01 authenticator 沒有對應 installer/hook。**若未來新增其他走 DNS-01 驗證的網域，務必同步在該網域的 renewal conf 加上 `renew_hook = systemctl reload nginx`，否則會重蹈覆轍。**
+
+自動續簽由 Certbot systemd timer 管理（一天兩次）。
+
+排查憑證是否為 Nginx 實際服務中版本（而非只看磁碟檔案）：
+```bash
+# 磁碟上的憑證到期日
+sudo certbot certificates
+
+# Nginx 實際吐出來的憑證到期日 (加 -no_ticket 避免 TLS session 快取干擾判讀)
+echo | openssl s_client -connect 127.0.0.1:443 -servername bw-internal.duckdns.org -no_ticket 2>/dev/null | openssl x509 -noout -dates
+```
+若兩者日期不一致，代表 Nginx 沒有 reload，執行 `sudo nginx -t && sudo systemctl reload nginx` 即可修復。
 
 測試自動續簽：
 ```bash
