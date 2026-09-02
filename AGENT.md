@@ -82,15 +82,20 @@ renew_hook = systemctl reload nginx
 
 **原因**：`proxy-defaults.conf` 原本只對齊了後端 PHP 的上傳大小/逾時/proxy buffer，完全沒設定 `large_client_header_buffers`。Nginx 內建預設是 4 個 8k buffer，單一 request line（含完整 query string）必須塞進一個 buffer，超過 8k 就直接 414。
 
-**已套用的修復**：在 `proxy-defaults.conf` 加上：
+**已套用的修復**：在 `proxy-defaults.conf` 加上（當天先用 300 筆的情況估算為 `4 32k`）：
 ```
 large_client_header_buffers 4 32k;
 ```
+同一天後續確認 SQL 測試單次查詢上限是 **2000 筆**，實際模具編號約 22 碼（如 `MCH1400002B01021-01-01`），2000 筆實測約需 60KB，`32k` 不夠用，故再調整為：
+```
+large_client_header_buffers 4 128k;
+```
+（留安全邊際，避免編號變長或筆數略增又踩到上限）
 
 **未來規則（務必遵守）**：
 1. 若被要求排查「414」或「API 帶大量參數失敗」，先確認回應是不是 Nginx 原生錯誤頁（`Server: nginx`，內容是純 HTML 標題），若是，代表請求連後端都沒送到，優先檢查 `large_client_header_buffers` / `client_header_buffer_size`，不要往後端 (FastAPI/PHP) 方向找。
-2. 判斷方式：估算 `GET <path>?<querystring> HTTP/1.1` 這行的總 byte 數是否接近或超過目前設定值。
-3. 若未來有 API 需要支援更大量的 query string 參數（例如上千筆 ID），可以再往上調 `large_client_header_buffers`，但更建議的長期方案是請後端改成 POST + body 傳遞大量參數，避免受 URL 長度限制反覆調參數。
+2. 判斷方式：估算 `GET <path>?<querystring> HTTP/1.1` 這行的總 byte 數是否接近或超過目前設定值，可用 `python3 -c "print(len('GET /path?' + querystring + ' HTTP/1.1'))"` 快速估算，或直接組長 URL 用 `curl --resolve` 打本機驗證（不需要真的對外發請求）。
+3. 目前 `4 128k` 是對齊「單次最多 2000 筆、每筆約 22 碼」的估算結果。若未來業務上限調整（例如 SQL 測試上限改成更大筆數，或編號長度變長），**必須重新用實際筆數與實際編號長度算一次**，不要憑感覺調數字。長期建議前端改用 POST + body 傳遞大量參數，避免受 URL 長度限制反覆調整此值。
 
 ## DuckDNS 自動更新 IP
 - 腳本：`~/bothwell-nginx/duckdns-update.sh`

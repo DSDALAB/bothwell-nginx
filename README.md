@@ -69,11 +69,11 @@
 | `proxy_buffer_size` | `16k` | PHP `memory_limit` = 512M（減少暫存檔寫入）|
 | `proxy_buffers` | `8 32k` | 同上 |
 | `proxy_busy_buffers_size` | `64k` | 同上 |
-| `large_client_header_buffers` | `4 32k` | 無對應後端設定，見下方事故紀錄 |
+| `large_client_header_buffers` | `4 128k` | 無對應後端設定，對齊 SQL 測試單次上限 2000 筆查詢，見下方事故紀錄 |
 
 > **注意：** 若個別 `server` 或 `location` 區塊有明確設定同名指令，則以該層設定覆蓋全域值。
 
-> **⚠️ 事故紀錄 (2026-09-02)：** `/api/v1/molds/status?mold_no=...` 帶約 300 筆 `mold_no` query string 參數時出現 `414 Request-URI Too Large`。根因是 Nginx 完全沒設定 `large_client_header_buffers`，用內建預設值（4 個 8k buffer），而單一 request line（含完整 query string）必須塞進一個 buffer，超過 8k 就直接被 Nginx 擋下，請求根本沒送到後端。已加大為 `4 32k` 解決。**若未來 API 需要更大量的 query string 參數（例如上千筆 ID），此值需要再往上調，或建議前端改用 POST + body 傳遞大量參數，避免受 URL 長度限制。**
+> **⚠️ 事故紀錄 (2026-09-02)：** `/api/v1/molds/status?mold_no=...` 帶約 300 筆 `mold_no` query string 參數時出現 `414 Request-URI Too Large`。根因是 Nginx 完全沒設定 `large_client_header_buffers`，用內建預設值（4 個 8k buffer），而單一 request line（含完整 query string）必須塞進一個 buffer，超過 8k 就直接被 Nginx 擋下，請求根本沒送到後端。當天先調到 `4 32k` 解決 300 筆的情況；後續確認 SQL 測試單次上限是 **2000 筆**，實際模具編號約 22 碼（如 `MCH1400002B01021-01-01`），實測 2000 筆需要約 60KB，故再調到 `4 128k` 留足安全邊際。**若未來 API 需要支援的單次查詢筆數再往上提升，此值需要跟著重新估算調整，長期建議前端改用 POST + body 傳遞大量參數，避免受 URL 長度限制反覆調整此值。**
 
 ## 使用方式
 
