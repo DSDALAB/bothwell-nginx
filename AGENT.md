@@ -77,6 +77,21 @@ renew_hook = systemctl reload nginx
    ```
    兩者日期不一致就代表 Nginx 沒 reload，執行 `sudo nginx -t && sudo systemctl reload nginx` 即可修復當下問題，但別忘了同時檢查/補上 renew_hook 避免重演。
 
+### ⚠️ 重要陷阱：414 Request-URI Too Large 與 large_client_header_buffers
+2026-09-02 發生過的事故：`/api/v1/molds/status?mold_no=...` 帶約 300 筆 query string 參數時回傳 Nginx 原生的 `414 Request-URI Too Large`（回應是 nginx 錯誤頁，不是 FastAPI 回的，代表請求根本沒到後端）。
+
+**原因**：`proxy-defaults.conf` 原本只對齊了後端 PHP 的上傳大小/逾時/proxy buffer，完全沒設定 `large_client_header_buffers`。Nginx 內建預設是 4 個 8k buffer，單一 request line（含完整 query string）必須塞進一個 buffer，超過 8k 就直接 414。
+
+**已套用的修復**：在 `proxy-defaults.conf` 加上：
+```
+large_client_header_buffers 4 32k;
+```
+
+**未來規則（務必遵守）**：
+1. 若被要求排查「414」或「API 帶大量參數失敗」，先確認回應是不是 Nginx 原生錯誤頁（`Server: nginx`，內容是純 HTML 標題），若是，代表請求連後端都沒送到，優先檢查 `large_client_header_buffers` / `client_header_buffer_size`，不要往後端 (FastAPI/PHP) 方向找。
+2. 判斷方式：估算 `GET <path>?<querystring> HTTP/1.1` 這行的總 byte 數是否接近或超過目前設定值。
+3. 若未來有 API 需要支援更大量的 query string 參數（例如上千筆 ID），可以再往上調 `large_client_header_buffers`，但更建議的長期方案是請後端改成 POST + body 傳遞大量參數，避免受 URL 長度限制反覆調參數。
+
 ## DuckDNS 自動更新 IP
 - 腳本：`~/bothwell-nginx/duckdns-update.sh`
 - 同時更新 `amee-bw` 與 `bw-internal` 兩個子網域
